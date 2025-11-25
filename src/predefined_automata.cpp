@@ -6,6 +6,12 @@
 #include <stdexcept>
 #include <string>
 
+/**
+ * 輔助結構：在多重預設自動機中追蹤兩種「身分」狀態，
+ * 以便在配置轉移時快速辨識是否落在等價的 Id 分支。
+ * 建構時計算量為 O(1)，僅儲存狀態與預先分好的線性形式列表，
+ * 使後續判斷或收集轉移時不需要重新排列資料。
+ */
 struct Alternative_Id_Helper {
     State ida;
     State idb;
@@ -14,16 +20,20 @@ struct Alternative_Id_Helper {
     std::vector<Def_Linear_Form> ida_fin_branch;
     std::vector<Def_Linear_Form> idb_fin_branch;
 
+    // 檢查給定狀態是否為替代的身分狀態：直接比較 state 是否等於任一紀錄的 Id，時間複雜度 O(1)。
     bool is_id(State state) const {
         return state == ida || state == idb;
     }
 };
 
+// 將係數包裝成可與狀態相乘的線性形式：回傳一個帶有給定係數與狀態的 Def_Linear_Form，供後續標記子樹或累加。
 Def_Linear_Form Def_Coef::operator*(const Def_State& other) {
     return Def_Linear_Form(*this, other);
 }
 
-
+// 收集指定子樹標記的線性形式分量：篩選 components 中 tag 符合要求的項目，
+// 將其係數與狀態放入 Linear_Form::components 中；未匹配的項目會被忽略，
+// 形成對應轉移矩陣的單一線性組合。
 Linear_Form collect_tagged_subtrees_into_form(const std::vector<Def_Linear_Form>& components, Subtree_Tag tag) {
     Linear_Form form;
     for (auto& component : components) {
@@ -34,6 +44,9 @@ Linear_Form collect_tagged_subtrees_into_form(const std::vector<Def_Linear_Form>
     return form;
 }
 
+// 從左右子樹的線性形式集合中分別收集 LL/LR 與 RL/RR 部分：
+// 先依標記整理出左子樹的 LEFT/RIGHT 與右子樹的 LEFT/RIGHT 線性形式，
+// 再以這四個 Linear_Form 初始化 WTT::Transition，對應 (LL, LR, RL, RR) 四個象限的振幅。
 WTT::Transition synthetize_wtt_transition(const std::vector<Def_Linear_Form>& left_subtree, const std::vector<Def_Linear_Form>& right_subtree) {
     Linear_Form ll = collect_tagged_subtrees_into_form(left_subtree, Subtree_Tag::LEFT);
     Linear_Form lr = collect_tagged_subtrees_into_form(left_subtree, Subtree_Tag::RIGHT);
@@ -43,6 +56,9 @@ WTT::Transition synthetize_wtt_transition(const std::vector<Def_Linear_Form>& le
     return WTT::Transition(ll, lr, rl, rr);
 }
 
+// 從左右子樹的線性形式集合中收集未標記的項目：
+// 僅挑選 tag 為 NONE 的項目填入左、右 Linear_Form，
+// 產生 SWTA::Transition 需要的 (f_left, f_right) 兩組幅度分佈。
 SWTA::Transition synthetize_swta_transition(const std::vector<Def_Linear_Form>& left_subtree, const std::vector<Def_Linear_Form>& right_subtree) {
     Linear_Form ll = collect_tagged_subtrees_into_form(left_subtree,  Subtree_Tag::NONE);
     Linear_Form rr = collect_tagged_subtrees_into_form(right_subtree, Subtree_Tag::NONE);
@@ -50,6 +66,9 @@ SWTA::Transition synthetize_swta_transition(const std::vector<Def_Linear_Form>& 
     return SWTA::Transition(ll, rr);
 }
 
+// 依據給定的四個複數幅度構造哈密頓量階段的 WTT：
+// 會建立三個狀態（應用、終止前、葉），並以傳入的 ll/lr/rl/rr 係數填入轉移的四個象限，
+// 使工作量子位在掃描過程中套用對應幅度，最終在葉節點收束成給定的幅度矩陣。
 WTT construct_stage_for_hamiltonian(const Algebraic_Complex_Number& ll, const Algebraic_Complex_Number& lr, const Algebraic_Complex_Number& rl, const Algebraic_Complex_Number& rr) {
     using DLF = std::vector<Def_Linear_Form>;
 
@@ -106,6 +125,9 @@ WTT construct_stage_for_hamiltonian(const Algebraic_Complex_Number& ll, const Al
     return result;
 }
 
+// 依照預設的名稱組裝對應的 WTT：透過名稱選擇對應的建構模板，
+// 在每個模板中設定狀態數、內部符號、初末狀態，並以線性形式描述各內部符號的振幅流向，
+// 將複數係數分配到左右子樹，使得 WTT 能模擬相應的量子門或控制流程。
 WTT get_predefined_wtt(Predefined_WTT_Names name, const SWTA::Metadata& swta_metadata) {
     using DLF = std::vector<Def_Linear_Form>;
     using ACN = Algebraic_Complex_Number;
@@ -113,7 +135,7 @@ WTT get_predefined_wtt(Predefined_WTT_Names name, const SWTA::Metadata& swta_met
     if (name == Predefined_WTT_Names::HADAMARD) {
         // q0 -> LEFT{ 1/sqrt(2)(q0, L) + 1/sqrt(2)(q0, R) }, RIGHT{ 1/sqrt(2)(q0, L) - 1/sqrt(2)(q0, R) }
         // q0(left) -> (left)
-
+        
         State q0 = 0;
 
         std::vector<std::vector<WTT::Transition>> transitions_by_symbol;
@@ -135,12 +157,12 @@ WTT get_predefined_wtt(Predefined_WTT_Names name, const SWTA::Metadata& swta_met
     }
 
     if (name == Predefined_WTT_Names::PARITY_CNOT) {
-        // Computes parity as in BV circuit with secred (10)*
-        // Qubits/states are labeled with A, B
-        State a0 = 0; // Odd qubit, even parity
-        State b0 = 1; // Even qubit, even parity
-        State a1 = 2; // Odd qubit, odd parity
-        State b1 = 3; // Even qubit, odd parity
+        // 依照 Bernstein-Vazirani 電路的秘密字串 (10)* 計算位元奇偶性。
+        // 量子位/狀態以 A、B 標記。
+        State a0 = 0; // 奇數位量子位，偶數奇偶性
+        State b0 = 1; // 偶數位量子位，偶數奇偶性
+        State a1 = 2; // 奇數位量子位，奇數奇偶性
+        State b1 = 3; // 偶數位量子位，奇數奇偶性
 
         size_t state_cnt = 4;
         size_t internal_symbol_cnt = 2;
@@ -153,7 +175,7 @@ WTT get_predefined_wtt(Predefined_WTT_Names name, const SWTA::Metadata& swta_met
             transitions[state].resize(internal_symbol_cnt);
         }
 
-        // MOVE: a0 -w-> b0(L), b1(r)
+        // 移動：a0 -w-> b0(L), b1(R)
         {
             Linear_Form::Component ll_component (Algebraic_Complex_Number::ONE(), b0);
             Linear_Form ll ({ll_component});
@@ -166,7 +188,7 @@ WTT get_predefined_wtt(Predefined_WTT_Names name, const SWTA::Metadata& swta_met
             transitions[a0][work_qubit] = transition;
         }
 
-        // MOVE: b0 -w-> a0(L), a0(r)
+        // 移動：b0 -w-> a0(L), a0(R)
         {
             Linear_Form::Component ll_component (Algebraic_Complex_Number::ONE(), a0);
             Linear_Form ll ({ll_component});
@@ -176,7 +198,7 @@ WTT get_predefined_wtt(Predefined_WTT_Names name, const SWTA::Metadata& swta_met
             transitions[b0][work_qubit] = transition;
         }
 
-        // MOVE: a1 -w-> b1(L), b0(r)
+        // 移動：a1 -w-> b1(L), b0(R)
         {
             Linear_Form::Component ll_component (Algebraic_Complex_Number::ONE(), b1);
             Linear_Form ll ({ll_component});
@@ -189,7 +211,7 @@ WTT get_predefined_wtt(Predefined_WTT_Names name, const SWTA::Metadata& swta_met
             transitions[a1][work_qubit] = transition;
         }
 
-        // MOVE: b1 -w-> a1(L), a1(r)
+        // 移動：b1 -w-> a1(L), a1(R)
         {
             Linear_Form::Component ll_component (Algebraic_Complex_Number::ONE(), a1);
             Linear_Form ll ({ll_component});
@@ -199,8 +221,8 @@ WTT get_predefined_wtt(Predefined_WTT_Names name, const SWTA::Metadata& swta_met
             transitions[b1][work_qubit] = transition;
         }
 
-        // MOVE: a0 -a-> b0(L), b0(r)
-        // MOVE: b0 -a-> b0(L), b0(r)
+        // 移動： a0 -a-> b0(L), b0(r)
+        // 移動： b0 -a-> b0(L), b0(r)
         {
             std::vector<Def_Linear_Form> left_subtree  {Def_Coef(Algebraic_Complex_Number::ONE()) * b0 * Subtree_Tag::LEFT};
             std::vector<Def_Linear_Form> right_subtree {Def_Coef(Algebraic_Complex_Number::ONE()) * b0 * Subtree_Tag::RIGHT};
@@ -210,8 +232,8 @@ WTT get_predefined_wtt(Predefined_WTT_Names name, const SWTA::Metadata& swta_met
             transitions[b0][ancilla] = transition;
         }
 
-        // MOVE: a1 -a-> b0(R), b0(L)
-        // MOVE: b1 -a-> b0(R), b0(L)
+        // 移動： a1 -a-> b0(R), b0(L)
+        // 移動： b1 -a-> b0(R), b0(L)
         {
             std::vector<Def_Linear_Form> left_subtree  {Def_Coef(Algebraic_Complex_Number::ONE()) * b0 * Subtree_Tag::RIGHT};
             std::vector<Def_Linear_Form> right_subtree {Def_Coef(Algebraic_Complex_Number::ONE()) * b0 * Subtree_Tag::LEFT};
@@ -771,9 +793,9 @@ WTT get_predefined_wtt(Predefined_WTT_Names name, const SWTA::Metadata& swta_met
 
     if (name == Predefined_WTT_Names::ADDER_UMA2 || name == Predefined_WTT_Names::ADDER_MAJ2) {
         State root = 0;
-        State p_star1  = 1; // Project away all branches *1
+        State p_star1  = 1; // 投影掉所有帶「1」的分支
         State p_1      = 2;
-        State e_star1  = 3; // Extract (keep values of) the branches *1
+        State e_star1  = 3; // 萃取並保留所有帶「1」的分支值
         State e_1      = 4;
         State q_leaf   = 5;
 
@@ -885,7 +907,7 @@ WTT get_predefined_wtt(Predefined_WTT_Names name, const SWTA::Metadata& swta_met
     if (name == Predefined_WTT_Names::ADDER_MAJ1) {
         State root   = 0;
         State q_id   = 1;
-        State q_p1   = 2;  // Project away branch "1"
+        State q_p1   = 2;  // 投影掉符號為「1」的分支
         State q_e1   = 3;  // Extract branch "1"
         State q_leaf = 4;
 
@@ -1658,6 +1680,9 @@ WTT get_predefined_wtt(Predefined_WTT_Names name, const SWTA::Metadata& swta_met
 }
 
 
+// 依照預設的名稱產生 SWTA 範例：根據指定名稱決定狀態數與內部符號，
+// 為每個狀態填入以線性形式表示的轉移，並標記初始與接受葉節點，
+// 方便測試或示範時直接取得可運行的樹自動機配置。
 SWTA get_predefined_swta(Predefined_SWTA_Names name) {
     using DLF = std::vector<Def_Linear_Form>;
     using ACN = Algebraic_Complex_Number;
@@ -1668,28 +1693,28 @@ SWTA get_predefined_swta(Predefined_SWTA_Names name) {
 
         State q0    = 0;
         State q1    = 1;
-        State q_bot = 2;  // Accepts zero trees of any height
+        State q_bot = 2;  // 接受任何高度的空樹
 
         Internal_Symbol sym_w = 0;
         Internal_Symbol sym_a = 1;
 
         Color c = 0;
 
-        { // Transition q0 ----> w(q0, q_bot)
+        { // 轉移 q0 ----> w(q0, q_bot)
              DLF left_subtree  {Def_Coef(Algebraic_Complex_Number::ONE()) * q0};
              DLF right_subtree {Def_Coef(Algebraic_Complex_Number::ZERO()) * q_bot};
              auto transition = synthetize_swta_transition(left_subtree, right_subtree);
              builder.add_transition(q0, sym_w, c, transition);
         }
 
-        { // Transition q0 ----> a(q_bot, q1)
+        { // 轉移 q0 ----> a(q_bot, q1)
              DLF left_subtree  {Def_Coef(Algebraic_Complex_Number::ZERO()) * q_bot};
              DLF right_subtree {Def_Coef(Algebraic_Complex_Number::ONE()) * q1};
              auto transition = synthetize_swta_transition(left_subtree, right_subtree);
              builder.add_transition(q0, sym_a, c, transition);
         }
 
-        { // Transition q_bot ----> a(q_bot, q_bot)
+        { // 轉移 q_bot ----> a(q_bot, q_bot)
              DLF left_subtree  {Def_Coef(Algebraic_Complex_Number::ZERO()) * q_bot};
              DLF right_subtree {Def_Coef(Algebraic_Complex_Number::ZERO()) * q_bot};
              auto transition = synthetize_swta_transition(left_subtree, right_subtree);
