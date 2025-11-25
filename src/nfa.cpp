@@ -6,12 +6,26 @@
 #include <sstream>
 
 
+/*
+ * operator<< (Macrostate)
+ * 用途：
+ *   將巨狀態的內容（包含狀態名稱與 handle）以人類可讀形式輸出。
+ * 怎麼算：
+ *   將 state_names 與 handle 依序寫入串流，格式為 "Macrostate [..] (handle=..)"。
+ */
 std::ostream& operator<<(std::ostream& os, const Macrostate& macrostate) {
     os << "Macrostate " << macrostate.state_names << " (handle=" << macrostate.handle << ")";
     return os;
 }
 
 
+/*
+ * compute_post
+ * 用途：
+ *   計算給定巨狀態在指定符號下的後繼巨狀態。
+ * 怎麼算：
+ *   遍歷巨狀態內所有原子狀態，依符號收集轉移後的狀態到 Bit_Set 並同步填入 state_names，最後回傳新巨狀態。
+ */
 Macrostate compute_post(const Macrostate* macrostate, const NFA& nfa, u64 symbol) {
     Macrostate post (nfa.number_of_states());
 
@@ -33,6 +47,13 @@ Macrostate compute_post(const Macrostate* macrostate, const NFA& nfa, u64 symbol
     return post;
 }
 
+/*
+ * NFA::complete
+ * 用途：
+ *   使 NFA 完備，確保每個狀態在每個符號下皆有轉移。
+ * 怎麼算：
+ *   若缺少轉移則新增指向沉沒狀態的邊，必要時建立沉沒狀態並自循環，回傳是否有新增沉沒狀態。
+ */
 bool NFA::complete() {
     u64 state_cnt = this->number_of_states();
     State sink_state = state_cnt;
@@ -61,6 +82,13 @@ bool NFA::complete() {
     return was_sink_state_needed;
 }
 
+/*
+ * NFA::determinize
+ * 用途：
+ *   將 NFA 轉換為等價的 DFA。
+ * 怎麼算：
+ *   以子集構造法遍歷巨狀態：從初始巨狀態開始，對每個符號計算 post，為新巨狀態分配 handle 並建立轉移，最終重建 DFA 結構。
+ */
 NFA NFA::determinize() const {
     std::map<Macrostate, NFA::State> handles;
 
@@ -154,10 +182,24 @@ NFA NFA::determinize() const {
     return result;
 }
 
+/*
+ * NFA::is_every_state_accepting
+ * 用途：
+ *   檢查自動機是否所有狀態皆為接受狀態。
+ * 怎麼算：
+ *   呼叫 final_states.are_all_bits_set() 確認所有位元皆為 1。
+ */
 bool NFA::is_every_state_accepting() const {
     return this->final_states.are_all_bits_set();
 }
 
+/*
+ * NFA::write_dot
+ * 用途：
+ *   將 NFA 輸出為 Graphviz DOT 描述以供可視化。
+ * 怎麼算：
+ *   先寫入初始箭頭與節點樣式（區分終態與一般狀態），再列舉所有轉移並以 label 標示符號，最後關閉圖形定義。
+ */
 void NFA::write_dot(std::ostream& stream) const {
     stream << "digraph NFA {\n";
 
@@ -196,6 +238,13 @@ void NFA::write_dot(std::ostream& stream) const {
     stream << "}\n";
 }
 
+/*
+ * print_diseq_witness
+ * 用途：
+ *   在等價性檢查失敗時，輸出導致不等價的顏色序列。
+ * 怎麼算：
+ *   依 pred 指標回溯狀態配對，重建顏色字串並逆序輸出，展示抵達分歧的輸入字。
+ */
 void print_diseq_witness(Worklist_Construction_Context<State_Pair>& ctx, u64 state) {
     std::vector<State_Pair> states_by_handles;
     states_by_handles.resize(ctx.handles.size());
@@ -224,6 +273,13 @@ void print_diseq_witness(Worklist_Construction_Context<State_Pair>& ctx, u64 sta
     std::cout << "\n";
 }
 
+/*
+ * are_two_complete_dfas_equivalent
+ * 用途：
+ *   檢查兩個已完備 DFA 是否接受同一語言。
+ * 怎麼算：
+ *   以工作清單同步遍歷狀態配對，若某配對終態性不同則回傳 false；否則依每個符號擴展配對直到遍歷完畢，最後回傳 true。
+ */
 bool are_two_complete_dfas_equivalent(const NFA& first_nfa, NFA& second_nfa) {
     u64 alphabet_size = first_nfa.alphabet_size();
     assert(alphabet_size == second_nfa.alphabet_size());
@@ -264,12 +320,26 @@ bool are_two_complete_dfas_equivalent(const NFA& first_nfa, NFA& second_nfa) {
     return true;
 }
 
+/*
+ * operator<< (State_Pair)
+ * 用途：
+ *   以易讀格式輸出狀態配對與 handle。
+ * 怎麼算：
+ *   依序將 first、second 與 handle 填入串流，格式為 "(first, second, handle=...)"。
+ */
 std::ostream& operator<<(std::ostream& os, const State_Pair& state) {
     os << "(" << state.first << ", " << state.second << ", handle=" << state.handle << ")";
     return os;
 }
 
 
+/*
+ * NFA_Builder::build
+ * 用途：
+ *   根據累積的轉移與初終態資訊建構 NFA 實例。
+ * 怎麼算：
+ *   推導所需狀態數（必要時從轉移中求最大狀態），為每個狀態配置符號轉移向量並填入集合轉移內容，最後擴充終態位元集合並建立 NFA。
+ */
 NFA NFA_Builder::build(s64 state_cnt) {
     std::vector<NFA::Transitions_From_State> result_transitions;
 
@@ -304,6 +374,13 @@ NFA NFA_Builder::build(s64 state_cnt) {
     return result;
 }
 
+/*
+ * NFA_Builder::add_transition
+ * 用途：
+ *   在建構期間為指定狀態與符號新增轉移目標。
+ * 怎麼算：
+ *   確保來源狀態的轉移向量尺寸足夠，然後將 destination 插入對應符號的集合以去除重複。
+ */
 void NFA_Builder::add_transition(NFA::State source_state, u64 symbol, NFA::State destination) {
     auto& transitions_from_state = this->transitions[source_state];
     if (transitions_from_state.empty()) {
