@@ -1,4 +1,4 @@
-FROM fedora:latest
+FROM --platform=linux/amd64 fedora:latest
 
 # 建置時可用的參數（必要時可從 devcontainer.json 覆寫）
 ARG USERNAME=vscode
