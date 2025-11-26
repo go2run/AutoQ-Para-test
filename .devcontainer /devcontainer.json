@@ -1,0 +1,20 @@
+{
+    // https://containers.dev/guide/dockerfile
+    "name": "Debian",
+    "build": {
+        "context": "..",
+        "dockerfile": "Dockerfile"
+    },
+    "customizations": {
+        "vscode": {
+            "extensions": []
+        }
+    },
+    // Use 'forwardPorts' to make a list of ports inside the container available locally.
+    "forwardPorts": []
+    // Use 'postCreateCommand' to run commands after the container is created.
+    // "postCreateCommand": "apt-get update && apt-get install -y <your
+    // favorite packages>",
+    // Uncomment to connect as a non-root user. See https://aka.ms/vscode-remote/containers/non-root
+    // "remoteUser": "vscode"
+}
