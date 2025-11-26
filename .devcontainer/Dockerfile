@@ -19,7 +19,8 @@ RUN dnf -y update && \
       sudo \
       which \
       openssh-clients \
-      procps && \
+      procps \
+      catch2-devel && \
     dnf clean all
 
     
