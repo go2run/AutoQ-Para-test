@@ -1,13 +1,16 @@
 {
     // https://containers.dev/guide/dockerfile
-    "name": "Debian",
+    "name": "Fedora",
     "build": {
         "context": "..",
         "dockerfile": "Dockerfile"
     },
     "customizations": {
         "vscode": {
-            "extensions": []
+            "extensions": [
+                "ms-vscode.cpptools",
+                "ms-vscode.cpptools-extension-pack"
+            ]
         }
     },
     // Use 'forwardPorts' to make a list of ports inside the container available locally.
