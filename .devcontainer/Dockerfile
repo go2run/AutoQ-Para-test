@@ -13,7 +13,7 @@ RUN dnf -y update && \
       make \
       gcc-c++ \
       gmp-devel \
-      git \
+      git git-lfs \
       pkgconfig \
       zsh \
       sudo \
